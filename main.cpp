@@ -164,7 +164,6 @@ int main() {
     std::vector<Tile> hand;
     hand.reserve(14);
 
-    // NEW: 36 entries initialized to zero
     std::array<int, 36> counts{};
 
     std::cout << "Welcome to Mahjong Analyzer!\n";
@@ -227,7 +226,6 @@ int main() {
 
 
     // Analyze the hand against the demonstration patterns.
-    // Replace demo_patterns.txt with patterns from your own card later.
     try {
         const auto patterns = mahjong::loadPatterns(
             "demo_patterns.txt",
