@@ -1,0 +1,9 @@
+# DEMONSTRATION PATTERNS ONLY. These are NOT from the annual NMJL card.
+# Format: Pattern name | group-size*tile group-size*tile ...
+# A group of 1 or 2 never permits a Joker; groups of 3+ do.
+# For NEWS or a year such as 2026, enter each symbol as a separate single.
+
+Bamboo pungs with flowers | 2*F 3*5B 3*6B 3*7B 3*8B
+Three kongs with flowers | 2*F 4*5B 4*5D 4*5C
+Four winds and two kongs | 1*E 1*S 1*W 1*N 2*F 4*1B 4*1C
+Two quints | 2*E 2*F 5*3B 5*3D

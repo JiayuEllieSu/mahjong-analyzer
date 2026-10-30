@@ -4,6 +4,8 @@
 #include <vector>
 #include <array>
 #include <cctype>
+#include <algorithm>
+#include "hand_analyzer.hpp"
 
 enum class Suit {
     BAMBOO,
@@ -221,6 +223,43 @@ int main() {
                   << " / " << maxCopies(tile) << "\n";
 
         printed[index] = true;
+    }
+
+
+    // Analyze the hand against the demonstration patterns.
+    // Replace demo_patterns.txt with patterns from your own card later.
+    try {
+        const auto patterns = mahjong::loadPatterns(
+            "demo_patterns.txt",
+            [](const std::string& label) {
+                Suit suit = Suit::BAMBOO;
+                int rank = 0;
+                if (!parseTile(label, suit, rank)) return -1;
+                return tileIndex(Tile(suit, rank));
+            });
+
+        const auto choices = mahjong::rankDiscards(counts, patterns);
+        std::cout << "\nDiscard rankings (DEMO patterns, not the official card):\n";
+
+        const std::size_t limit = std::min<std::size_t>(5, choices.size());
+        for (std::size_t i = 0; i < limit; ++i) {
+            const auto& choice = choices[i];
+
+            std::string discardedTile = "?";
+            for (const Tile& tile : hand) {
+                if (tileIndex(tile) == choice.tileIndex) {
+                    discardedTile = tileToString(tile);
+                    break;
+                }
+            }
+
+            std::cout << (i + 1) << ". Discard " << discardedTile
+                      << " | missing: " << choice.missing
+                      << " | improving copies: " << choice.improvingCopies
+                      << " | nearest pattern: " << choice.closestPattern << "\n";
+        }
+    } catch (const std::exception& error) {
+        std::cerr << "\nAnalysis unavailable: " << error.what() << "\n";
     }
 
     return 0;
