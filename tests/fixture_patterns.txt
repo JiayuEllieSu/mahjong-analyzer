@@ -1,0 +1,2 @@
+# A synthetic fixture, not an official winning hand.
+Fixture pungs | 2*F 3*5B 3*6B 3*7B 3*8B

@@ -5,6 +5,9 @@
 #include <array>
 #include <cctype>
 #include <algorithm>
+#include <iomanip>
+#include <sstream>
+#include <stdexcept>
 #include "hand_analyzer.hpp"
 
 enum class Suit {
@@ -160,75 +163,91 @@ constexpr int tileIndex(const Tile& tile) {
     return -1;
 }
 
-int main() {
-    std::vector<Tile> hand;
-    hand.reserve(14);
+Tile tileFromIndex(int index) {
+    if (index < 0 || index >= mahjong::TILE_TYPES) {
+        throw std::out_of_range("Invalid tile index");
+    }
+    if (index < 9) return {Suit::BAMBOO, index + 1};
+    if (index < 18) return {Suit::DOT, index - 9 + 1};
+    if (index < 27) return {Suit::CHARACTER, index - 18 + 1};
+    if (index < 31) return {Suit::WINDS, index - 27 + 1};
+    if (index < 34) return {Suit::DRAGONS, index - 31 + 1};
+    if (index == 34) return {Suit::FLOWER, 0};
+    return {Suit::JOKER, 0};
+}
 
-    std::array<int, 36> counts{};
-
-    std::cout << "Welcome to Mahjong Analyzer!\n";
-    std::cout << "Enter 14 tiles:\n";
-
-    while (hand.size() < 14) {
-        std::string input;
-
-        if (!(std::cin >> input)) {
-            std::cout << "\nInput stream closed. Exiting.\n";
-            return 1;
+std::vector<Tile> parseTileList(std::string text) {
+    std::replace(text.begin(), text.end(), ',', ' ');
+    std::istringstream stream(text);
+    std::vector<Tile> tiles;
+    std::string token;
+    while (stream >> token) {
+        Suit suit;
+        int rank;
+        if (!parseTile(token, suit, rank)) {
+            throw std::invalid_argument("Invalid tile: " + token);
         }
+        tiles.emplace_back(suit, rank);
+    }
+    return tiles;
+}
 
-        Suit parsedSuit;
-        int parsedRank;
+struct Options {
+    std::string patternFile = "demo_patterns.txt";
+    std::string handText;
+    std::string visibleText;
+    bool handProvided = false;
+    bool showAll = false;
+};
 
-        if (!parseTile(input, parsedSuit, parsedRank)) {
-            std::cout << "Invalid tile. Retry.\n";
-            continue;
+void printUsage() {
+    std::cout << "Usage: ./mahjong [--patterns FILE] [--hand TILES] [--visible TILES] [--all]\n"
+              << "\n"
+              << "  --patterns FILE   14-tile patterns (default: demo_patterns.txt)\n"
+              << "  --hand TILES      Exactly 14 tiles; otherwise prompted interactively\n"
+              << "  --visible TILES   Exposed/discarded tiles (not including your hand)\n"
+              << "  --all             Show all discard choices instead of the top five\n"
+              << "  --help            Show this help message\n"
+              << "\n"
+              << "Tile examples: 5B, 6D, 9C, E, S, W, N, RD, GD, WD, F, J\n"
+              << "Separate tile codes with spaces or commas; quote each tile list.\n";
+}
+
+Options parseOptions(int argc, char* argv[]) {
+    Options options;
+    for (int i = 1; i < argc; ++i) {
+        const std::string option = argv[i];
+        if (option == "--all") {
+            options.showAll = true;
+        } else if (option == "--patterns" || option == "--hand" || option == "--visible") {
+            if (i + 1 >= argc) {
+                throw std::invalid_argument("Missing value for " + option);
+            }
+            const std::string value = argv[++i];
+            if (option == "--patterns") options.patternFile = value;
+            else if (option == "--hand") {
+                options.handText = value;
+                options.handProvided = true;
+            } else options.visibleText = value;
+        } else {
+            throw std::invalid_argument("Unknown option: " + option + " (try --help)");
         }
+    }
+    return options;
+}
 
-        Tile candidate(parsedSuit, parsedRank);
-
-        // Check duplicates using the array
-        int index = tileIndex(candidate);
-
-        if (counts[index] >= maxCopies(candidate)) {
-            std::cout << "Too many copies of this tile!\n";
-            continue;
+int main(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--help") {
+            printUsage();
+            return 0;
         }
-
-        hand.push_back(candidate);
-
-        // Update the corresponding tile count
-        counts[index]++;
     }
 
-    std::cout << "\nYour hand: ";
-
-    for (int i = 0; i < 14; i++) {
-        std::cout << tileToString(hand[i]) << " ";
-    }
-
-    std::cout << "\n\nTile frequencies:\n";
-
-    // Print the count of each distinct tile
-    std::array<bool, 36> printed{};
-
-    for (const Tile& tile : hand) {
-        int index = tileIndex(tile);
-
-        if (printed[index]) continue;
-
-        std::cout << tileToString(tile)
-                  << ": " << counts[index]
-                  << " / " << maxCopies(tile) << "\n";
-
-        printed[index] = true;
-    }
-
-
-    // Analyze the hand against the demonstration patterns.
     try {
+        const Options options = parseOptions(argc, argv);
         const auto patterns = mahjong::loadPatterns(
-            "demo_patterns.txt",
+            options.patternFile,
             [](const std::string& label) {
                 Suit suit = Suit::BAMBOO;
                 int rank = 0;
@@ -236,29 +255,104 @@ int main() {
                 return tileIndex(Tile(suit, rank));
             });
 
-        const auto choices = mahjong::rankDiscards(counts, patterns);
-        std::cout << "\nDiscard rankings (DEMO patterns, not the official card):\n";
+        mahjong::Counts visible{};
+        for (const Tile& tile : parseTileList(options.visibleText)) {
+            const int index = tileIndex(tile);
+            if (visible[index] >= maxCopies(tile)) {
+                throw std::invalid_argument("Too many visible copies of " + tileToString(tile));
+            }
+            ++visible[index];
+        }
 
-        const std::size_t limit = std::min<std::size_t>(5, choices.size());
-        for (std::size_t i = 0; i < limit; ++i) {
-            const auto& choice = choices[i];
+        std::vector<Tile> hand;
+        hand.reserve(14);
+        mahjong::Counts counts{};
 
-            std::string discardedTile = "?";
+        if (options.handProvided) {
+            hand = parseTileList(options.handText);
+            if (hand.size() != 14) {
+                throw std::invalid_argument("--hand requires exactly 14 tiles");
+            }
             for (const Tile& tile : hand) {
-                if (tileIndex(tile) == choice.tileIndex) {
-                    discardedTile = tileToString(tile);
-                    break;
+                const int index = tileIndex(tile);
+                if (++counts[index] + visible[index] > maxCopies(tile)) {
+                    throw std::invalid_argument("Too many hand/visible copies of " + tileToString(tile));
                 }
             }
+        } else {
+            std::cout << "Welcome to Mahjong Analyzer!\nEnter 14 tiles:\n";
+            while (hand.size() < 14) {
+                std::string input;
+                if (!(std::cin >> input)) {
+                    std::cerr << "\nInput stream closed. Exiting.\n";
+                    return 1;
+                }
+                Suit suit;
+                int rank;
+                if (!parseTile(input, suit, rank)) {
+                    std::cout << "Invalid tile. Retry.\n";
+                    continue;
+                }
+                Tile tile(suit, rank);
+                const int index = tileIndex(tile);
+                if (counts[index] + visible[index] >= maxCopies(tile)) {
+                    std::cout << "Too many copies of this tile (including visible tiles)!\n";
+                    continue;
+                }
+                hand.push_back(tile);
+                ++counts[index];
+            }
+        }
 
-            std::cout << (i + 1) << ". Discard " << discardedTile
+        const int unknownCopies = mahjong::unseenCopies(counts, visible);
+        std::cout << "\nYour hand: ";
+        for (const Tile& tile : hand) std::cout << tileToString(tile) << " ";
+
+        std::cout << "\n\nTile frequencies:\n";
+        std::array<bool, mahjong::TILE_TYPES> printed{};
+        for (const Tile& tile : hand) {
+            const int index = tileIndex(tile);
+            if (printed[index]) continue;
+            std::cout << tileToString(tile) << ": " << counts[index]
+                      << " / " << maxCopies(tile) << "\n";
+            printed[index] = true;
+        }
+
+        const auto choices = mahjong::rankDiscards(counts, patterns, visible);
+        std::cout << "\nDiscard rankings (patterns: " << options.patternFile << "):\n"
+                  << "Uniform-unknown-draw model: " << unknownCopies
+                  << " unseen copies; does not model opponent hands or actual wall contents.\n";
+
+        const std::size_t limit = options.showAll ? choices.size()
+            : std::min<std::size_t>(5, choices.size());
+        for (std::size_t i = 0; i < limit; ++i) {
+            const auto& choice = choices[i];
+            const double percent = unknownCopies == 0 ? 0.0
+                : 100.0 * choice.improvingCopies / unknownCopies;
+
+            std::cout << (i + 1) << ". Discard " << tileToString(tileFromIndex(choice.tileIndex))
                       << " | missing: " << choice.missing
                       << " | improving copies: " << choice.improvingCopies
+                      << " | improving types: " << choice.improvingTileTypes
+                      << " | estimated improvement: " << std::fixed << std::setprecision(1)
+                      << percent << "%"
                       << " | nearest pattern: " << choice.closestPattern << "\n";
+            std::cout << "   Improving draws: ";
+            if (choice.improvingDraws.empty()) {
+                std::cout << "none";
+            } else {
+                for (std::size_t j = 0; j < choice.improvingDraws.size(); ++j) {
+                    const auto& draw = choice.improvingDraws[j];
+                    if (j != 0) std::cout << ", ";
+                    std::cout << tileToString(tileFromIndex(draw.tileIndex))
+                              << " (" << draw.remainingCopies << " left)";
+                }
+            }
+            std::cout << "\n";
         }
     } catch (const std::exception& error) {
-        std::cerr << "\nAnalysis unavailable: " << error.what() << "\n";
+        std::cerr << "Error: " << error.what() << "\n";
+        return 1;
     }
-
     return 0;
 }

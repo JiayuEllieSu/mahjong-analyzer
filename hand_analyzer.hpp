@@ -37,12 +37,19 @@ struct Match {
     int usefulJokers;   // Jokers that can legally fill its groups
 };
 
+struct ImprovingDraw {
+    int tileIndex;
+    int remainingCopies; // Unseen copies in the uniform-unknown-tile model
+    int missingAfterDraw;
+};
+
 struct DiscardChoice {
     int tileIndex;
     int missing;
     int improvingCopies;
     int improvingTileTypes;
     std::string closestPattern;
+    std::vector<ImprovingDraw> improvingDraws;
 };
 
 inline int physicalCopies(int tileIndex) {
@@ -159,23 +166,33 @@ inline int minimumMissing(const Counts& hand, const std::vector<Pattern>& patter
     return best;
 }
 
-// Uses a uniform-unknown-tile model, NOT opponent strategy or wall composition.
-// 'visible' contains already exposed/discarded tiles, excluding your 14 tiles.
-inline std::vector<DiscardChoice> rankDiscards(
-    const Counts& hand, const std::vector<Pattern>& patterns,
-    const Counts& visible = Counts{}) {
-
-    if (patterns.empty()) throw std::invalid_argument("Provide at least one pattern");
-
+// Validates physical tile availability and returns the number of tiles not in
+// the hand or visible pool. These are not necessarily still in the wall.
+inline int unseenCopies(const Counts& hand, const Counts& visible = Counts{}) {
     int handSize = 0;
+    int unseen = 0;
     for (int tile = 0; tile < TILE_TYPES; ++tile) {
         if (hand[tile] < 0 || visible[tile] < 0 ||
             hand[tile] + visible[tile] > physicalCopies(tile)) {
             throw std::invalid_argument("Impossible hand or visible tile counts");
         }
         handSize += hand[tile];
+        unseen += physicalCopies(tile) - hand[tile] - visible[tile];
     }
     if (handSize != 14) throw std::invalid_argument("Expected a 14-tile hand");
+    return unseen;
+}
+
+// Uses a uniform-unknown-tile model, NOT opponent strategy or wall composition.
+// 'visible' contains already exposed/discarded tiles, excluding your 14 tiles.
+// Improving draws are measured relative to the 13-tile hand after discarding.
+inline std::vector<DiscardChoice> rankDiscards(
+    const Counts& hand, const std::vector<Pattern>& patterns,
+    const Counts& visible = Counts{}) {
+
+    if (patterns.empty()) throw std::invalid_argument("Provide at least one pattern");
+
+    (void)unseenCopies(hand, visible);
 
     std::vector<DiscardChoice> choices;
     Counts afterDiscard = hand;
@@ -196,6 +213,7 @@ inline std::vector<DiscardChoice> rankDiscards(
 
         int improvingCopies = 0;
         int improvingTypes = 0;
+        std::vector<ImprovingDraw> improvingDraws;
         for (int draw = 0; draw < TILE_TYPES; ++draw) {
             // Use the ORIGINAL 14-tile hand: the discarded tile is now known,
             // not a tile that can still be drawn from the unknown pool.
@@ -203,14 +221,27 @@ inline std::vector<DiscardChoice> rankDiscards(
             if (unseen == 0) continue;
 
             ++afterDiscard[draw];
-            if (minimumMissing(afterDiscard, patterns) < bestMissing) {
+            const int missingAfterDraw = minimumMissing(afterDiscard, patterns);
+            --afterDiscard[draw];
+            if (missingAfterDraw < bestMissing) {
                 improvingCopies += unseen;
                 ++improvingTypes;
+                improvingDraws.push_back({draw, unseen, missingAfterDraw});
             }
-            --afterDiscard[draw];
         }
+        std::sort(improvingDraws.begin(), improvingDraws.end(),
+                  [](const ImprovingDraw& a, const ImprovingDraw& b) {
+            if (a.missingAfterDraw != b.missingAfterDraw) {
+                return a.missingAfterDraw < b.missingAfterDraw;
+            }
+            if (a.remainingCopies != b.remainingCopies) {
+                return a.remainingCopies > b.remainingCopies;
+            }
+            return a.tileIndex < b.tileIndex;
+        });
 
-        choices.push_back({discard, bestMissing, improvingCopies, improvingTypes, bestName});
+        choices.push_back({discard, bestMissing, improvingCopies,
+                           improvingTypes, bestName, std::move(improvingDraws)});
         ++afterDiscard[discard];
     }
 

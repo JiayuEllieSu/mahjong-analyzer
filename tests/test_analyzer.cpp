@@ -40,5 +40,54 @@ int main() {
     assert(choices.front().missing == 1);
     assert(choices.front().improvingCopies == 10); // two 8B + eight jokers
 
+    assert(choices.front().improvingTileTypes == 2);
+    assert(choices.front().improvingDraws.size() == 2);
+    assert(choices.front().improvingDraws[0].tileIndex == JOKER_INDEX);
+    assert(choices.front().improvingDraws[0].remainingCopies == 8);
+    assert(choices.front().improvingDraws[0].missingAfterDraw == 0);
+    assert(choices.front().improvingDraws[1].tileIndex == 7);
+    assert(choices.front().improvingDraws[1].remainingCopies == 2);
+    assert(unseenCopies(candidate) == 138);
+
+    Counts visible{};
+    visible[7] = 1; // one 8B exposed
+    visible[35] = 4; // four jokers already visible
+    const auto adjusted = rankDiscards(candidate, {pattern}, visible);
+    assert(adjusted.front().tileIndex == 27);
+    assert(adjusted.front().improvingCopies == 5);
+    assert(adjusted.front().improvingTileTypes == 2);
+    assert(adjusted.front().improvingDraws[0].remainingCopies == 4);
+    assert(adjusted.front().improvingDraws[1].remainingCopies == 1);
+    assert(unseenCopies(candidate, visible) == 133);
+
+    // Exhausted improving tiles should no longer count as outs.
+    visible[7] = 2;
+    visible[35] = 8;
+    const auto exhausted = rankDiscards(candidate, {pattern}, visible);
+    bool foundEast = false;
+    for (const auto& choice : exhausted) {
+        if (choice.tileIndex == 27) {
+            foundEast = true;
+            assert(choice.improvingCopies == 0);
+            assert(choice.improvingTileTypes == 0);
+            assert(choice.improvingDraws.empty());
+        }
+    }
+    assert(foundEast);
+
+    // Invalid visibility and malformed hands must fail explicitly.
+    visible[7] = 3; // two 8B in hand, so three visible is impossible
+    bool rejected = false;
+    try { (void)rankDiscards(candidate, {pattern}, visible); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    assert(rejected);
+
+    Counts tooSmall{};
+    tooSmall[4] = 1;
+    rejected = false;
+    try { (void)unseenCopies(tooSmall); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    assert(rejected);
+
     std::cout << "All tests passed.\n";
 }
