@@ -69,6 +69,9 @@ For each possible discard, the analyzer:
 1. Finds the minimum number of tiles missing from any loaded pattern in the 13-tile hand.
 2. Checks each unseen tile type to see whether drawing it decreases that minimum.
 3. Reports the number of improving tile types, remaining copies of each improving tile, and their total.
-4. Sorts primarily by fewer missing tiles, then by more improving copies.
+4. Prints the outstanding natural-only tiles (for singles and pairs) and joker-eligible tiles (for larger groups) needed to finish the nearest concrete pattern.
+5. Sorts primarily by fewer missing tiles, then by more improving copies.
 
 The displayed improvement percentage is `improving copies / all unseen copies`. The unseen pool starts from 152 physical tiles and excludes the 14 tiles in your hand and the supplied visible tiles. **This is a simplified uniform-unknown-tile estimate, not the probability of drawing from the actual wall**. It does not account for opponents' concealed hands, drawing strategies, exposed-set constraints, joker exchanges, card-specific scoring, or the current wall. `--all` shows all discard candidates instead of the five highest-ranked ones.
+
+**Completion plans:** `To finish nearest pattern` gives one valid allocation of held jokers to matching groups. For example, `1xF (natural only)` means a flower is required, while `1x8B (or J)` means either 8B or a joker can fill that position. If several sets could use a held joker, other allocations are also possible. The displayed requirements do not guarantee the listed tiles remain drawable; refer to improving draws and the visible-tile input for availability.

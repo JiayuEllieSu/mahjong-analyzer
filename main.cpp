@@ -348,6 +348,27 @@ int main(int argc, char* argv[]) {
                               << " (" << draw.remainingCopies << " left)";
                 }
             }
+            std::cout << "\n   To finish nearest pattern: ";
+            if (choice.remainingRequirements.empty()) {
+                std::cout << "nothing missing";
+            } else {
+                bool first = true;
+                for (const auto& requirement : choice.remainingRequirements) {
+                    const std::string tile = tileToString(tileFromIndex(requirement.tileIndex));
+                    if (requirement.naturalOnly > 0) {
+                        if (!first) std::cout << ", ";
+                        std::cout << requirement.naturalOnly << "x" << tile
+                                  << " (natural only)";
+                        first = false;
+                    }
+                    if (requirement.jokerEligible > 0) {
+                        if (!first) std::cout << ", ";
+                        std::cout << requirement.jokerEligible << "x" << tile
+                                  << " (or J)";
+                        first = false;
+                    }
+                }
+            }
             std::cout << "\n";
         }
     } catch (const std::exception& error) {

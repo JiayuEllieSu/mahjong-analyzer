@@ -43,6 +43,14 @@ struct ImprovingDraw {
     int missingAfterDraw;
 };
 
+// Outstanding tiles for one concrete pattern. Joker-eligible slots may be
+// completed by either the named natural tile or a joker.
+struct TileRequirement {
+    int tileIndex;
+    int naturalOnly;
+    int jokerEligible;
+};
+
 struct DiscardChoice {
     int tileIndex;
     int missing;
@@ -50,6 +58,7 @@ struct DiscardChoice {
     int improvingTileTypes;
     std::string closestPattern;
     std::vector<ImprovingDraw> improvingDraws;
+    std::vector<TileRequirement> remainingRequirements;
 };
 
 inline int physicalCopies(int tileIndex) {
@@ -158,6 +167,36 @@ inline Match matchPattern(const Counts& hand, const Pattern& pattern) {
     return {14 - naturalMatches - usefulJokers, naturalMatches, usefulJokers};
 }
 
+// Describe one consistent way to complete a target pattern. Allocate natural
+// tiles to singles/pairs first, then to sets, then use held jokers for open
+// set positions in ascending tile-index order. Other joker allocations may
+// be equally valid; this is an explanation, not a unique completion plan.
+inline std::vector<TileRequirement> missingRequirements(
+    const Counts& hand, const Pattern& pattern) {
+    std::array<int, JOKER_INDEX> fixed{};
+    std::array<int, JOKER_INDEX> flexible{};
+    for (const Group& group : pattern.groups) {
+        if (group.size <= 2) fixed[group.tileIndex] += group.size;
+        else flexible[group.tileIndex] += group.size;
+    }
+
+    int jokersLeft = hand[JOKER_INDEX];
+    std::vector<TileRequirement> result;
+    for (int tile = 0; tile < JOKER_INDEX; ++tile) {
+        const int fixedMatches = std::min(hand[tile], fixed[tile]);
+        const int naturalOnly = fixed[tile] - fixedMatches;
+        const int flexMatches = std::min(hand[tile] - fixedMatches, flexible[tile]);
+        const int flexDeficit = flexible[tile] - flexMatches;
+        const int allocatedJokers = std::min(jokersLeft, flexDeficit);
+        jokersLeft -= allocatedJokers;
+        const int jokerEligible = flexDeficit - allocatedJokers;
+        if (naturalOnly > 0 || jokerEligible > 0) {
+            result.push_back({tile, naturalOnly, jokerEligible});
+        }
+    }
+    return result;
+}
+
 inline int minimumMissing(const Counts& hand, const std::vector<Pattern>& patterns) {
     int best = 14;
     for (const Pattern& pattern : patterns) {
@@ -203,11 +242,14 @@ inline std::vector<DiscardChoice> rankDiscards(
 
         int bestMissing = 15;
         std::string bestName;
-        for (const Pattern& pattern : patterns) {
+        std::size_t bestPatternIndex = 0;
+        for (std::size_t index = 0; index < patterns.size(); ++index) {
+            const Pattern& pattern = patterns[index];
             const int missing = matchPattern(afterDiscard, pattern).missing;
             if (missing < bestMissing) {
                 bestMissing = missing;
                 bestName = pattern.name;
+                bestPatternIndex = index;
             }
         }
 
@@ -241,7 +283,8 @@ inline std::vector<DiscardChoice> rankDiscards(
         });
 
         choices.push_back({discard, bestMissing, improvingCopies,
-                           improvingTypes, bestName, std::move(improvingDraws)});
+                           improvingTypes, bestName, std::move(improvingDraws),
+                           missingRequirements(afterDiscard, patterns[bestPatternIndex])});
         ++afterDiscard[discard];
     }
 

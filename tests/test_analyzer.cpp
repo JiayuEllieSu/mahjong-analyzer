@@ -39,6 +39,22 @@ int main() {
     assert(choices.front().tileIndex == 27);
     assert(choices.front().missing == 1);
     assert(choices.front().improvingCopies == 10); // two 8B + eight jokers
+    // The plan targets the exact pattern selected in the ranking.
+    assert(choices.front().remainingRequirements.size() == 1);
+    assert(choices.front().remainingRequirements.front().tileIndex == 7);
+    assert(choices.front().remainingRequirements.front().naturalOnly == 0);
+    assert(choices.front().remainingRequirements.front().jokerEligible == 1);
+
+    // A joker cannot substitute for a missing tile in a pair.
+    const auto flowerNeeds = missingRequirements(hand, pattern);
+    assert(flowerNeeds.size() == 1);
+    assert(flowerNeeds.front().tileIndex == 34);
+    assert(flowerNeeds.front().naturalOnly == 1);
+    assert(flowerNeeds.front().jokerEligible == 0);
+
+    // When a pair and a pung use the same tile, natural tiles first fill
+    // the pair; jokers can cover the remaining pung positions.
+    assert(missingRequirements(second, overlap).empty());
 
     assert(choices.front().improvingTileTypes == 2);
     assert(choices.front().improvingDraws.size() == 2);

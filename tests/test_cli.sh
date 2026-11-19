@@ -11,6 +11,7 @@ grep -Fq 'Uniform-unknown-draw model: 133 unseen copies' <<< "$output"
 grep -Fq '1. Discard E | missing: 1 | improving copies: 5' <<< "$output"
 grep -Fq 'estimated improvement: 3.8%' <<< "$output"
 grep -Fq 'Improving draws: J (4 left), 8B (1 left)' <<< "$output"
+grep -Fq 'To finish nearest pattern: 1x8B (or J)' <<< "$output"
 grep -Fq 'nearest pattern: Fixture pungs' <<< "$output"
 grep -Fq '6. Discard' <<< "$output" # --all reports all six types in this hand
 
