@@ -91,6 +91,33 @@ int main() {
     }
     assert(foundEast);
 
+    // A visible shortage of a natural pair makes the pattern impossible,
+    // even when jokers remain plentiful.
+    Pattern eastPair{"East pair", {{27,2},{4,3},{5,3},{6,3},{7,3}}};
+    Counts eastVisible{};
+    eastVisible[27] = 3;
+    assert(!canCompletePattern(eastPair, eastVisible));
+
+    // Joker supply, not just natural supply, can make a target unreachable.
+    Pattern quints{"Two quints", {{27,2},{34,2},{4,5},{13,5}}};
+    Counts scarce{};
+    scarce[4] = 3;  // Only one natural 5B still available.
+    scarce[13] = 3; // Only one natural 5D still available.
+    assert(canCompletePattern(quints, scarce)); // Eight jokers could cover both.
+    scarce[JOKER_INDEX] = 1;
+    assert(!canCompletePattern(quints, scarce));
+
+    // An East single can be kept if it is the last copy, but discarding
+    // that East makes the target unreachable. Such a discard ranks last.
+    Pattern eastSingle{"East single", {{27,1},{34,1},{4,4},{5,4},{6,4}}};
+    Counts onlyEastVisible{};
+    onlyEastVisible[27] = 3;
+    const auto feasibleChoices = rankDiscards(candidate, {eastSingle}, onlyEastVisible);
+    assert(feasibleChoices.front().missing < 15);
+    assert(feasibleChoices.back().tileIndex == 27);
+    assert(feasibleChoices.back().missing == 15);
+    assert(feasibleChoices.back().improvingDraws.empty());
+
     // Invalid visibility and malformed hands must fail explicitly.
     visible[7] = 3; // two 8B in hand, so three visible is impossible
     bool rejected = false;

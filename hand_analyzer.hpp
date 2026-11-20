@@ -222,6 +222,34 @@ inline int unseenCopies(const Counts& hand, const Counts& visible = Counts{}) {
     return unseen;
 }
 
+// A pattern is reachable only if its required natural singles/pairs are
+// still available and the remaining joker supply can cover shortages in sets.
+// 'unavailable' means exposed/previously discarded tiles PLUS the current
+// candidate discard. Hidden opponent tiles are not known, so this is a
+// necessary feasibility check, not a guarantee of eventual completion.
+inline bool canCompletePattern(const Pattern& pattern, const Counts& unavailable) {
+    std::array<int, JOKER_INDEX> fixed{};
+    std::array<int, JOKER_INDEX> flexible{};
+    for (const Group& group : pattern.groups) {
+        if (group.size <= 2) fixed[group.tileIndex] += group.size;
+        else flexible[group.tileIndex] += group.size;
+    }
+
+    const int jokersAvailable = physicalCopies(JOKER_INDEX) - unavailable[JOKER_INDEX];
+    if (jokersAvailable < 0 || unavailable[JOKER_INDEX] < 0) return false;
+
+    int minimumJokers = 0;
+    for (int tile = 0; tile < JOKER_INDEX; ++tile) {
+        const int naturalsAvailable = physicalCopies(tile) - unavailable[tile];
+        if (unavailable[tile] < 0 || naturalsAvailable < fixed[tile]) {
+            return false; // Jokers cannot replace singles or pairs.
+        }
+        minimumJokers += std::max(0, fixed[tile] + flexible[tile] - naturalsAvailable);
+        if (minimumJokers > jokersAvailable) return false;
+    }
+    return true;
+}
+
 // Uses a uniform-unknown-tile model, NOT opponent strategy or wall composition.
 // 'visible' contains already exposed/discarded tiles, excluding your 14 tiles.
 // Improving draws are measured relative to the 13-tile hand after discarding.
@@ -240,11 +268,27 @@ inline std::vector<DiscardChoice> rankDiscards(
         if (hand[discard] == 0) continue;
         --afterDiscard[discard];
 
+        // The just-discarded tile is public and cannot be drawn back.
+        // Filter out targets that no remaining supply could ever finish.
+        Counts unavailable = visible;
+        ++unavailable[discard];
+        std::vector<Pattern> feasiblePatterns;
+        for (const Pattern& pattern : patterns) {
+            if (canCompletePattern(pattern, unavailable)) {
+                feasiblePatterns.push_back(pattern);
+            }
+        }
+        if (feasiblePatterns.empty()) {
+            choices.push_back({discard, 15, 0, 0, "none (unreachable)", {}, {}});
+            ++afterDiscard[discard];
+            continue;
+        }
+
         int bestMissing = 15;
         std::string bestName;
         std::size_t bestPatternIndex = 0;
-        for (std::size_t index = 0; index < patterns.size(); ++index) {
-            const Pattern& pattern = patterns[index];
+        for (std::size_t index = 0; index < feasiblePatterns.size(); ++index) {
+            const Pattern& pattern = feasiblePatterns[index];
             const int missing = matchPattern(afterDiscard, pattern).missing;
             if (missing < bestMissing) {
                 bestMissing = missing;
@@ -263,7 +307,7 @@ inline std::vector<DiscardChoice> rankDiscards(
             if (unseen == 0) continue;
 
             ++afterDiscard[draw];
-            const int missingAfterDraw = minimumMissing(afterDiscard, patterns);
+            const int missingAfterDraw = minimumMissing(afterDiscard, feasiblePatterns);
             --afterDiscard[draw];
             if (missingAfterDraw < bestMissing) {
                 improvingCopies += unseen;
@@ -284,7 +328,7 @@ inline std::vector<DiscardChoice> rankDiscards(
 
         choices.push_back({discard, bestMissing, improvingCopies,
                            improvingTypes, bestName, std::move(improvingDraws),
-                           missingRequirements(afterDiscard, patterns[bestPatternIndex])});
+                           missingRequirements(afterDiscard, feasiblePatterns[bestPatternIndex])});
         ++afterDiscard[discard];
     }
 

@@ -323,10 +323,23 @@ int main(int argc, char* argv[]) {
                   << "Uniform-unknown-draw model: " << unknownCopies
                   << " unseen copies; does not model opponent hands or actual wall contents.\n";
 
+        if (std::all_of(choices.begin(), choices.end(),
+                        [](const mahjong::DiscardChoice& choice) {
+                            return choice.missing == 15;
+                        })) {
+            std::cout << "Warning: no target pattern is reachable after any discard.\n";
+        }
+
         const std::size_t limit = options.showAll ? choices.size()
             : std::min<std::size_t>(5, choices.size());
         for (std::size_t i = 0; i < limit; ++i) {
             const auto& choice = choices[i];
+            if (choice.missing == 15) {
+                std::cout << (i + 1) << ". Discard "
+                          << tileToString(tileFromIndex(choice.tileIndex))
+                          << " | unreachable: no feasible target pattern\n";
+                continue;
+            }
             const double percent = unknownCopies == 0 ? 0.0
                 : 100.0 * choice.improvingCopies / unknownCopies;
 

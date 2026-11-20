@@ -15,6 +15,14 @@ grep -Fq 'To finish nearest pattern: 1x8B (or J)' <<< "$output"
 grep -Fq 'nearest pattern: Fixture pungs' <<< "$output"
 grep -Fq '6. Discard' <<< "$output" # --all reports all six types in this hand
 
+# A discard can permanently eliminate the last available natural single.
+dead_pattern_file=$(mktemp)
+trap 'rm -f "$dead_pattern_file"' EXIT
+printf 'East single | 1*E 1*F 4*5B 4*6B 4*7B\n' > "$dead_pattern_file"
+dead_output=$(./mahjong --hand "$hand" --visible 'E E E' \
+  --patterns "$dead_pattern_file" --all)
+grep -Fq '6. Discard E | unreachable: no feasible target pattern' <<< "$dead_output"
+
 # Commas and lowercase tile codes are accepted.
 comma_output=$(./mahjong --hand 'f,f,5b,5b,5b,6b,6b,6b,7b,7b,7b,8b,8b,e')
 grep -Fq '1. Discard E' <<< "$comma_output"

@@ -64,4 +64,20 @@ Discards are ranked by:
 
 The analyzer also displays the tiles needed to complete a pattern and an estimated improvement percentage.
 
+## Unreachable patterns
+
+The analyzer now checks **whether each pattern can still be completed** before
+using it to recommend a discard. It counts exposed/discarded tiles supplied via
+`--visible` and also treats the candidate discard as out of play. Singles
+and pairs require natural tiles, while groups of three or more may use the
+remaining jokers to cover natural-tile shortages.
+
+For instance, if you hold the last East tile and a pattern requires an East
+single, discarding East makes that pattern unreachable. A discard with no
+reachable target patterns appears last and is marked `unreachable` (use
+`--all` to see every option).
+
+This is a **necessary availability check**, not a prediction of the wall:
+opponents' concealed tiles and other gameplay constraints remain unknown.
+
 **Note:** Probabilities assume a uniform pool of unseen tiles, not the actual wall. Opponent hands, exposed-set constraints, and other gameplay factors are excluded.
