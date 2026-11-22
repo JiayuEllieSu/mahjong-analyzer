@@ -34,6 +34,21 @@ Use custom patterns:
 ./mahjong --patterns my_patterns.txt --hand "..."
 ```
 
+Get helpful draw recommendations from a 13-tile hand:
+
+```bash
+./mahjong --draws --hand "F F 5B 5B 5B 6B 6B 6B 7B 7B 7B 8B 8B"
+```
+
+Export structured results for scripts or a browser frontend:
+
+```bash
+./mahjong --draws --json --hand "F F 5B 5B 5B 6B 6B 6B 7B 7B 7B 8B 8B" > draws.json
+./mahjong --json --all --hand "F F 5B 5B 5B 6B 6B 6B 7B 7B 7B 8B 8B E" > discards.json
+```
+
+JSON includes the unknown-pool size, closest pattern, missing-tile count, remaining requirements, and improving draws with available copy counts. The `improvement_percentage` assumes an equally likely draw from all unaccounted-for physical tiles, not the actual wall. Use `--all` to include every discard choice in JSON.
+
 Run `./mahjong --help` for all options.
 
 ## Tile codes
@@ -43,7 +58,7 @@ Run `./mahjong --help` for all options.
 - **Dragons:** `RD GD WD`
 - **Special:** `F` (flower), `J` (joker)
 
-Enter exactly 14 tiles. Codes are case-insensitive.
+Enter exactly 14 tiles for discard analysis or 13 tiles with `--draws`. Codes are case-insensitive.
 
 ## Patterns
 
