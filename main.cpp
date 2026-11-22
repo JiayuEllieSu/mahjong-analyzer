@@ -208,7 +208,9 @@ void printUsage() {
               << "  --patterns FILE   14-tile patterns (default: demo_patterns.txt)\n"
               << "  --hand TILES      14 tiles (13 with --draws); otherwise prompted interactively\n"
               << "  --visible TILES   Exposed/discarded tiles (not including your hand)\n"
-              << "  --draws           Analyze helpful draws from a 13-tile hand\n"\n              << "  --json            Output machine-readable JSON (requires --hand)\n"\n              << "  --all             Show all discard choices instead of the top five\n"
+              << "  --draws           Analyze helpful draws from a 13-tile hand
+              << "  --json            Output machine-readable JSON (requires --hand)
+              << "  --all             Show all discard choices instead of the top five\n"
               << "  --help            Show this help message\n"
               << "\n"
               << "Tile examples: 5B, 6D, 9C, E, S, W, N, RD, GD, WD, F, J\n"
