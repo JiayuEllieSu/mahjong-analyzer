@@ -61,6 +61,17 @@ struct DiscardChoice {
     std::vector<TileRequirement> remainingRequirements;
 };
 
+// Advice for the 13-tile hand between turns. Improving draws reduce the
+// minimum missing count against at least one still-reachable card pattern.
+struct DrawAdvice {
+    int missing;
+    int improvingCopies;
+    int improvingTileTypes;
+    std::string closestPattern;
+    std::vector<ImprovingDraw> improvingDraws;
+    std::vector<TileRequirement> remainingRequirements;
+};
+
 inline int physicalCopies(int tileIndex) {
     return (tileIndex == 34 || tileIndex == JOKER_INDEX) ? 8 : 4;
 }
@@ -218,7 +229,9 @@ inline int unseenCopies(const Counts& hand, const Counts& visible = Counts{}) {
         handSize += hand[tile];
         unseen += physicalCopies(tile) - hand[tile] - visible[tile];
     }
-    if (handSize != 14) throw std::invalid_argument("Expected a 14-tile hand");
+    if (handSize != 13 && handSize != 14) {
+        throw std::invalid_argument("Expected a 13- or 14-tile hand");
+    }
     return unseen;
 }
 
@@ -260,6 +273,11 @@ inline std::vector<DiscardChoice> rankDiscards(
     if (patterns.empty()) throw std::invalid_argument("Provide at least one pattern");
 
     (void)unseenCopies(hand, visible);
+    int handSize = 0;
+    for (int count : hand) handSize += count;
+    if (handSize != 14) {
+        throw std::invalid_argument("Discard rankings require a 14-tile hand");
+    }
 
     std::vector<DiscardChoice> choices;
     Counts afterDiscard = hand;
@@ -338,6 +356,75 @@ inline std::vector<DiscardChoice> rankDiscards(
         return a.tileIndex < b.tileIndex;
     });
     return choices;
+}
+
+
+ // Analyze a 13-tile hand before the next draw. Only tiles not held or
+ // reported visible count as potential draws. The resulting percentage is a
+ // uniform-unknown-pool estimate, NOT the probability of drawing from the wall.
+inline DrawAdvice rankDraws(
+    const Counts& hand, const std::vector<Pattern>& patterns,
+    const Counts& visible = Counts{}) {
+
+    if (patterns.empty()) throw std::invalid_argument("Provide at least one pattern");
+    (void)unseenCopies(hand, visible);
+
+    int handSize = 0;
+    for (int count : hand) handSize += count;
+    if (handSize != 13) {
+        throw std::invalid_argument("Draw advice requires a 13-tile hand");
+    }
+
+    std::vector<Pattern> feasiblePatterns;
+    for (const Pattern& pattern : patterns) {
+        if (canCompletePattern(pattern, visible)) feasiblePatterns.push_back(pattern);
+    }
+    if (feasiblePatterns.empty()) {
+        return {15, 0, 0, "none (unreachable)", {}, {}};
+    }
+
+    int bestMissing = 15;
+    std::size_t bestPatternIndex = 0;
+    for (std::size_t i = 0; i < feasiblePatterns.size(); ++i) {
+        const int missing = matchPattern(hand, feasiblePatterns[i]).missing;
+        if (missing < bestMissing) {
+            bestMissing = missing;
+            bestPatternIndex = i;
+        }
+    }
+
+    Counts withDraw = hand;
+    int improvingCopies = 0;
+    int improvingTypes = 0;
+    std::vector<ImprovingDraw> improvingDraws;
+    for (int draw = 0; draw < TILE_TYPES; ++draw) {
+        const int unseen = physicalCopies(draw) - hand[draw] - visible[draw];
+        if (unseen <= 0) continue;
+        ++withDraw[draw];
+        const int missingAfterDraw = minimumMissing(withDraw, feasiblePatterns);
+        --withDraw[draw];
+        if (missingAfterDraw < bestMissing) {
+            improvingCopies += unseen;
+            ++improvingTypes;
+            improvingDraws.push_back({draw, unseen, missingAfterDraw});
+        }
+    }
+
+    std::sort(improvingDraws.begin(), improvingDraws.end(),
+              [](const ImprovingDraw& a, const ImprovingDraw& b) {
+        if (a.missingAfterDraw != b.missingAfterDraw) {
+            return a.missingAfterDraw < b.missingAfterDraw;
+        }
+        if (a.remainingCopies != b.remainingCopies) {
+            return a.remainingCopies > b.remainingCopies;
+        }
+        return a.tileIndex < b.tileIndex;
+    });
+
+    return {bestMissing, improvingCopies, improvingTypes,
+            feasiblePatterns[bestPatternIndex].name,
+            std::move(improvingDraws),
+            missingRequirements(hand, feasiblePatterns[bestPatternIndex])};
 }
 
 } // namespace mahjong

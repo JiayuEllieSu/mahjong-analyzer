@@ -132,5 +132,40 @@ int main() {
     catch (const std::invalid_argument&) { rejected = true; }
     assert(rejected);
 
+    // A 13-tile hand should report the same helpful tiles as the
+    // corresponding 14-tile discard state.
+    Counts thirteen = candidate;
+    --thirteen[27];
+    const auto drawAdvice = rankDraws(thirteen, {pattern});
+    assert(drawAdvice.missing == 1);
+    assert(drawAdvice.improvingCopies == 10);
+    assert(drawAdvice.improvingTileTypes == 2);
+    assert(drawAdvice.improvingDraws[0].tileIndex == JOKER_INDEX);
+    assert(drawAdvice.improvingDraws[1].tileIndex == 7);
+    assert(drawAdvice.closestPattern == "Example");
+    assert(unseenCopies(thirteen) == 139);
+
+    Counts drawVisible{};
+    drawVisible[7] = 1;
+    drawVisible[JOKER_INDEX] = 4;
+    const auto fewerDraws = rankDraws(thirteen, {pattern}, drawVisible);
+    assert(fewerDraws.improvingCopies == 5);
+
+    // Fully blocked natural singles render the pattern unreachable.
+    Counts deadDraws{};
+    deadDraws[27] = 4;
+    const auto deadAdvice = rankDraws(thirteen, {eastSingle}, deadDraws);
+    assert(deadAdvice.missing == 15);
+    assert(deadAdvice.improvingDraws.empty());
+
+    rejected = false;
+    try { (void)rankDraws(candidate, {pattern}); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    assert(rejected);
+    rejected = false;
+    try { (void)rankDiscards(thirteen, {pattern}); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    assert(rejected);
+
     std::cout << "All tests passed.\n";
 }

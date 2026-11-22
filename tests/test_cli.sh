@@ -43,3 +43,23 @@ fi
 
 echo 'All CLI tests passed.'
 
+
+# 13-tile draw advice and JSON output work without interactive prompts.
+draw_hand='F F 5B 5B 5B 6B 6B 6B 7B 7B 7B 8B 8B'
+draw_output=$(./mahjong --hand "$draw_hand" --draws --patterns tests/fixture_patterns.txt)
+grep -Fq '13-tile draw advice' <<< "$draw_output"
+grep -Fq 'Helpful draws: J (8 left), 8B (2 left)' <<< "$draw_output"
+
+draw_json=$(./mahjong --hand "$draw_hand" --draws --json --patterns tests/fixture_patterns.txt)
+discard_json=$(./mahjong --hand "$hand" --json --patterns tests/fixture_patterns.txt)
+python3 -c 'import json,sys; x=json.loads(sys.argv[1]); assert x["mode"] == "draws"; assert x["improving_copies"] == 10; assert x["improving_draws"][0]["tile"] == "J"' "$draw_json"
+python3 -c 'import json,sys; x=json.loads(sys.argv[1]); assert x["mode"] == "discards"; assert x["choices"][0]["discard"] == "E"' "$discard_json"
+
+if ./mahjong --draws --hand "$hand" >/dev/null 2>&1; then
+  echo 'Expected 14 tiles to be rejected by --draws' >&2
+  exit 1
+fi
+if ./mahjong --json >/dev/null 2>&1; then
+  echo 'Expected --json without --hand to be rejected' >&2
+  exit 1
+fi
