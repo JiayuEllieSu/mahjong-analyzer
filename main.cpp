@@ -198,15 +198,17 @@ struct Options {
     std::string visibleText;
     bool handProvided = false;
     bool showAll = false;
+    bool drawMode = false;
+    bool json = false;
 };
 
 void printUsage() {
-    std::cout << "Usage: ./mahjong [--patterns FILE] [--hand TILES] [--visible TILES] [--all]\n"
+    std::cout << "Usage: ./mahjong [--patterns FILE] [--hand TILES] [--visible TILES] [--draws] [--json] [--all]\n"
               << "\n"
               << "  --patterns FILE   14-tile patterns (default: demo_patterns.txt)\n"
-              << "  --hand TILES      Exactly 14 tiles; otherwise prompted interactively\n"
+              << "  --hand TILES      14 tiles (13 with --draws); otherwise prompted interactively\n"
               << "  --visible TILES   Exposed/discarded tiles (not including your hand)\n"
-              << "  --all             Show all discard choices instead of the top five\n"
+              << "  --draws           Analyze helpful draws from a 13-tile hand\n"\n              << "  --json            Output machine-readable JSON (requires --hand)\n"\n              << "  --all             Show all discard choices instead of the top five\n"
               << "  --help            Show this help message\n"
               << "\n"
               << "Tile examples: 5B, 6D, 9C, E, S, W, N, RD, GD, WD, F, J\n"
@@ -219,6 +221,10 @@ Options parseOptions(int argc, char* argv[]) {
         const std::string option = argv[i];
         if (option == "--all") {
             options.showAll = true;
+        } else if (option == "--draws") {
+            options.drawMode = true;
+        } else if (option == "--json") {
+            options.json = true;
         } else if (option == "--patterns" || option == "--hand" || option == "--visible") {
             if (i + 1 >= argc) {
                 throw std::invalid_argument("Missing value for " + option);
@@ -233,7 +239,53 @@ Options parseOptions(int argc, char* argv[]) {
             throw std::invalid_argument("Unknown option: " + option + " (try --help)");
         }
     }
+    if (options.json && !options.handProvided) {
+        throw std::invalid_argument("--json requires --hand");
+    }
     return options;
+}
+
+std::string jsonEscape(const std::string& input) {
+    std::ostringstream output;
+    for (unsigned char ch : input) {
+        switch (ch) {
+            case '"': output << "\\\""; break;
+            case '\\': output << "\\\\"; break;
+            case '\n': output << "\\n"; break;
+            case '\r': output << "\\r"; break;
+            case '\t': output << "\\t"; break;
+            default:
+                if (ch < 0x20) {
+                    const char* hex = "0123456789abcdef";
+                    output << "\\u00" << hex[ch >> 4] << hex[ch & 15];
+                } else output << ch;
+        }
+    }
+    return output.str();
+}
+
+void printJsonDraws(const std::vector<mahjong::ImprovingDraw>& draws) {
+    std::cout << "[";
+    for (std::size_t i = 0; i < draws.size(); ++i) {
+        if (i) std::cout << ",";
+        const auto& draw = draws[i];
+        std::cout << "{\"tile\":\"" << tileToString(tileFromIndex(draw.tileIndex))
+                  << "\",\"remaining_copies\":" << draw.remainingCopies
+                  << ",\"missing_after_draw\":" << draw.missingAfterDraw << "}";
+    }
+    std::cout << "]";
+}
+
+void printJsonRequirements(const std::vector<mahjong::TileRequirement>& requirements) {
+    std::cout << "[";
+    for (std::size_t i = 0; i < requirements.size(); ++i) {
+        if (i) std::cout << ",";
+        const auto& r = requirements[i];
+        std::cout << "{\"tile\":\"" << tileToString(tileFromIndex(r.tileIndex))
+                  << "\",\"natural_only\":" << r.naturalOnly
+                  << ",\"joker_eligible\":" << r.jokerEligible << "}";
+    }
+    std::cout << "]";
 }
 
 int main(int argc, char* argv[]) {
@@ -264,14 +316,15 @@ int main(int argc, char* argv[]) {
             ++visible[index];
         }
 
+        const int requiredSize = options.drawMode ? 13 : 14;
         std::vector<Tile> hand;
-        hand.reserve(14);
+        hand.reserve(requiredSize);
         mahjong::Counts counts{};
 
         if (options.handProvided) {
             hand = parseTileList(options.handText);
-            if (hand.size() != 14) {
-                throw std::invalid_argument("--hand requires exactly 14 tiles");
+            if (static_cast<int>(hand.size()) != requiredSize) {
+                throw std::invalid_argument("--hand requires exactly " + std::to_string(requiredSize) + " tiles");
             }
             for (const Tile& tile : hand) {
                 const int index = tileIndex(tile);
@@ -280,8 +333,8 @@ int main(int argc, char* argv[]) {
                 }
             }
         } else {
-            std::cout << "Welcome to Mahjong Analyzer!\nEnter 14 tiles:\n";
-            while (hand.size() < 14) {
+            std::cout << "Welcome to Mahjong Analyzer!\nEnter " << requiredSize << " tiles:\n";
+            while (hand.size() < static_cast<std::size_t>(requiredSize)) {
                 std::string input;
                 if (!(std::cin >> input)) {
                     std::cerr << "\nInput stream closed. Exiting.\n";
@@ -305,6 +358,75 @@ int main(int argc, char* argv[]) {
         }
 
         const int unknownCopies = mahjong::unseenCopies(counts, visible);
+        if (options.drawMode) {
+            const auto advice = mahjong::rankDraws(counts, patterns, visible);
+            const double percentage = unknownCopies == 0 ? 0.0
+                : 100.0 * advice.improvingCopies / unknownCopies;
+            if (options.json) {
+                std::cout << "{\"mode\":\"draws\",\"unseen_copies\":" << unknownCopies
+                          << ",\"missing\":" << advice.missing
+                          << ",\"reachable\":" << (advice.missing == 15 ? "false" : "true")
+                          << ",\"improving_copies\":" << advice.improvingCopies
+                          << ",\"improving_types\":" << advice.improvingTileTypes
+                          << ",\"improvement_percentage\":" << std::fixed << std::setprecision(4)
+                          << percentage << ",\"closest_pattern\":\""
+                          << jsonEscape(advice.closestPattern) << "\",\"improving_draws\":";
+                printJsonDraws(advice.improvingDraws);
+                std::cout << ",\"remaining_requirements\":";
+                printJsonRequirements(advice.remainingRequirements);
+                std::cout << "}\n";
+            } else {
+                std::cout << "\n13-tile draw advice (patterns: " << options.patternFile << ")\n"
+                          << "Uniform-unknown-draw model: " << unknownCopies
+                          << " unseen copies; not the actual wall composition.\n";
+                if (advice.missing == 15) {
+                    std::cout << "No reachable target pattern.\n";
+                } else {
+                    std::cout << "Nearest pattern: " << advice.closestPattern
+                              << " | missing: " << advice.missing
+                              << " | improving copies: " << advice.improvingCopies
+                              << " | improving types: " << advice.improvingTileTypes
+                              << " | estimated improvement: " << std::fixed
+                              << std::setprecision(1) << percentage << "%\n";
+                    std::cout << "Helpful draws: ";
+                    if (advice.improvingDraws.empty()) std::cout << "none";
+                    for (std::size_t i = 0; i < advice.improvingDraws.size(); ++i) {
+                        if (i) std::cout << ", ";
+                        std::cout << tileToString(tileFromIndex(advice.improvingDraws[i].tileIndex))
+                                  << " (" << advice.improvingDraws[i].remainingCopies << " left)";
+                    }
+                    std::cout << "\n";
+                }
+            }
+            return 0;
+        }
+        if (options.json) {
+            const auto choices = mahjong::rankDiscards(counts, patterns, visible);
+            std::cout << "{\"mode\":\"discards\",\"unseen_copies\":" << unknownCopies
+                      << ",\"choices\":[";
+            const std::size_t limit = options.showAll ? choices.size()
+                : std::min<std::size_t>(5, choices.size());
+            for (std::size_t i = 0; i < limit; ++i) {
+                if (i) std::cout << ",";
+                const auto& c = choices[i];
+                const double percentage = unknownCopies == 0 ? 0.0
+                    : 100.0 * c.improvingCopies / unknownCopies;
+                std::cout << "{\"discard\":\"" << tileToString(tileFromIndex(c.tileIndex))
+                          << "\",\"reachable\":" << (c.missing == 15 ? "false" : "true")
+                          << ",\"missing\":" << c.missing
+                          << ",\"improving_copies\":" << c.improvingCopies
+                          << ",\"improving_types\":" << c.improvingTileTypes
+                          << ",\"improvement_percentage\":" << std::fixed << std::setprecision(4)
+                          << percentage << ",\"closest_pattern\":\""
+                          << jsonEscape(c.closestPattern) << "\",\"improving_draws\":";
+                printJsonDraws(c.improvingDraws);
+                std::cout << ",\"remaining_requirements\":";
+                printJsonRequirements(c.remainingRequirements);
+                std::cout << "}";
+            }
+            std::cout << "]}\n";
+            return 0;
+        }
         std::cout << "\nYour hand: ";
         for (const Tile& tile : hand) std::cout << tileToString(tile) << " ";
 
