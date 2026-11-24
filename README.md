@@ -9,6 +9,24 @@ make
 make test
 ```
 
+## Browser interface
+
+Requires Python 3 (standard library only) and a C++17 compiler.
+
+```bash
+make web
+```
+
+Open http://127.0.0.1:8765 in your browser. Click tiles to add them to your hand
+or to the visible pool, then remove them by clicking their rack entries.
+Analysis updates automatically with 13 tiles (draw advice) or 14 tiles
+(discard rankings), using the same C++ engine as the command-line interface.
+
+For a different pattern file, build with `make` and run
+`python3 web_server.py --patterns my_patterns.txt`. The server binds only
+to the local computer and does not require a third-party service. Stop it
+with Ctrl+C. By default, the browser uses demonstration patterns.
+
 ## Usage
 
 ```bash
