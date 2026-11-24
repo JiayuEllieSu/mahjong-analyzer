@@ -45,6 +45,8 @@ button[aria-pressed=true]{background:#244d3d;color:white;border-color:#244d3d}
 </section>
 <section class="results" aria-labelledby="results-heading">
 <h2 id="results-heading">Analysis</h2>
+<label><input type="checkbox" id="lookahead"> Two-draw lookahead</label>
+<p class="muted">Rank by the chance of completing a pattern within two self-draws, choosing the best discard after the first draw.</p>
 <p id="status" role="status" aria-live="polite">Enter 13 or 14 tiles.</p>
 <div id="results"></div>
 <p class="muted">Probabilities assume a uniform unseen pool, not the actual wall. The default patterns are demonstrations, not the official NMJL card. Own exposed-set restrictions and opponent strategy are not modeled.</p>
@@ -106,6 +108,9 @@ function showChoice(c,title){
   if(!c.reachable){article.append(element("p","No reachable target pattern.","muted"));return article;}
   article.append(element("div",c.closest_pattern,"muted"));
   article.append(element("div",c.missing+" missing · "+c.improving_copies+" improving copies · "+c.improvement_percentage.toFixed(1)+"% estimated improvement","stats"));
+  if(typeof c.two_draw_completion_percentage==="number"){
+    article.append(element("div","Completion within one draw: "+c.one_draw_completion_percentage.toFixed(2)+"% · Within two draws: "+c.two_draw_completion_percentage.toFixed(2)+"%","stats"));
+  }
   const requirements=c.remaining_requirements.map(r=>[
     r.natural_only ? r.natural_only+" × "+r.tile+" (natural only)" : "",
     r.joker_eligible ? r.joker_eligible+" × "+r.tile+" (or joker)" : ""
@@ -119,11 +124,11 @@ function showChoice(c,title){
 }
 async function requestAnalysis(id){
   try{
-    const response=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hand:state.hand,visible:state.visible})});
+    const response=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hand:state.hand,visible:state.visible,lookahead:$("lookahead").checked})});
     const data=await response.json();
     if(id!==generation)return;
     if(!response.ok)throw Error(data.error||"Analysis failed.");
-    $("status").textContent=data.unseen_copies+" unseen copies · "+(data.mode==="draws"?"Draw advice":"Discard rankings");
+    $("status").textContent=data.unseen_copies+" unseen copies · "+(data.mode==="draws"?"Draw advice":$("lookahead").checked?"Two-draw discard rankings":"Discard rankings");
     const output=$("results");output.replaceChildren();
     if(data.mode==="draws")output.append(showChoice(data,"Next draw"));
     else data.choices.forEach((c,i)=>output.append(showChoice(c,(i+1)+". Discard "+c.discard)));
@@ -140,6 +145,7 @@ function update(){
   }
   $("status").textContent="Analyzing…";timer=setTimeout(()=>requestAnalysis(id),120);
 }
+$("lookahead").onchange=update;
 $("to-hand").onclick=()=>{state.target="hand";render();};
 $("to-visible").onclick=()=>{state.target="visible";render();};
 $("clear").onclick=()=>{state.hand=[];state.visible=[];state.target="hand";update();};

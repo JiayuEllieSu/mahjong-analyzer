@@ -22,6 +22,17 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(result["mode"], "draws")
         self.assertEqual(result["improving_copies"], 8)
 
+    def test_lookahead(self):
+        result = analyze({"hand": HAND[:-1], "lookahead": True}, patterns=FIXTURE)
+        self.assertEqual(result["one_draw_completion_copies"], 10)
+        self.assertEqual(result["two_draw_successful_sequences"], 139*138 - 129*128)
+        result = analyze({"hand": HAND, "lookahead": True}, patterns=FIXTURE)
+        self.assertEqual(result["choices"][0]["discard"], "E")
+        self.assertNotIn("two_draw_completion_percentage",
+                         analyze({"hand": HAND[:-1]}, patterns=FIXTURE))
+        with self.assertRaises(ValueError):
+            analyze({"hand": HAND, "lookahead": "true"}, patterns=FIXTURE)
+
     def test_bad_requests(self):
         for payload in ({}, {"hand": HAND, "visible": ["8B"] * 3},
                         {"hand": HAND[:-1] + ["--json"]},

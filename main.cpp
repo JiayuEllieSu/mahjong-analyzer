@@ -200,10 +200,11 @@ struct Options {
     bool showAll = false;
     bool drawMode = false;
     bool json = false;
+    bool lookahead = false;
 };
 
 void printUsage() {
-    std::cout << "Usage: ./mahjong [--patterns FILE] [--hand TILES] [--visible TILES] [--draws] [--json] [--all]\n"
+    std::cout << "Usage: ./mahjong [--patterns FILE] [--hand TILES] [--visible TILES] [--draws] [--json] [--all] [--lookahead]\n"
               << "\n"
               << "  --patterns FILE   14-tile patterns (default: demo_patterns.txt)\n"
               << "  --hand TILES      14 tiles (13 with --draws); otherwise prompted interactively\n"
@@ -211,6 +212,7 @@ void printUsage() {
               << "  --draws           Analyze helpful draws from a 13-tile hand\n"
               << "  --json            Output machine-readable JSON (requires --hand)\n"
               << "  --all             Show all discard choices instead of the top five\n"
+              << "  --lookahead       Exact completion odds within two self-draws; rank discards by them\n"
               << "  --help            Show this help message\n"
               << "\n"
               << "Tile examples: 5B, 6D, 9C, E, S, W, N, RD, GD, WD, F, J\n"
@@ -225,6 +227,8 @@ Options parseOptions(int argc, char* argv[]) {
             options.showAll = true;
         } else if (option == "--draws") {
             options.drawMode = true;
+        } else if (option == "--lookahead") {
+            options.lookahead = true;
         } else if (option == "--json") {
             options.json = true;
         } else if (option == "--patterns" || option == "--hand" || option == "--visible") {
@@ -288,6 +292,21 @@ void printJsonRequirements(const std::vector<mahjong::TileRequirement>& requirem
                   << ",\"joker_eligible\":" << r.jokerEligible << "}";
     }
     std::cout << "]";
+}
+
+void printJsonCompletion(const mahjong::CompletionOdds& odds) {
+    std::cout << ",\"one_draw_completion_percentage\":" << std::fixed << std::setprecision(4)
+              << 100.0 * odds.oneDrawProbability()
+              << ",\"two_draw_completion_percentage\":" << 100.0 * odds.twoDrawProbability()
+              << ",\"one_draw_completion_copies\":" << odds.oneDrawCopies
+              << ",\"two_draw_successful_sequences\":" << odds.successfulSequences
+              << ",\"two_draw_total_sequences\":" << odds.totalSequences;
+}
+
+void printCompletion(const mahjong::CompletionOdds& odds) {
+    std::cout << "   Completion within one draw: " << std::fixed << std::setprecision(2)
+              << 100.0 * odds.oneDrawProbability() << "%"
+              << " | within two draws: " << 100.0 * odds.twoDrawProbability() << "%\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -362,6 +381,8 @@ int main(int argc, char* argv[]) {
         const int unknownCopies = mahjong::unseenCopies(counts, visible);
         if (options.drawMode) {
             const auto advice = mahjong::rankDraws(counts, patterns, visible);
+            mahjong::CompletionOdds odds;
+            if (options.lookahead) odds = mahjong::completionOdds(counts, patterns, visible);
             const double percentage = unknownCopies == 0 ? 0.0
                 : 100.0 * advice.improvingCopies / unknownCopies;
             if (options.json) {
@@ -376,6 +397,7 @@ int main(int argc, char* argv[]) {
                 printJsonDraws(advice.improvingDraws);
                 std::cout << ",\"remaining_requirements\":";
                 printJsonRequirements(advice.remainingRequirements);
+                if (options.lookahead) printJsonCompletion(odds);
                 std::cout << "}\n";
             } else {
                 std::cout << "\n13-tile draw advice (patterns: " << options.patternFile << ")\n"
@@ -399,11 +421,23 @@ int main(int argc, char* argv[]) {
                     }
                     std::cout << "\n";
                 }
+                if (options.lookahead) printCompletion(odds);
             }
             return 0;
         }
+        auto choices = mahjong::rankDiscards(counts, patterns, visible);
+        std::array<mahjong::CompletionOdds, mahjong::TILE_TYPES> completion{};
+        if (options.lookahead) {
+            for (const auto& choice : choices)
+                completion[choice.tileIndex] = mahjong::completionAfterDiscard(
+                    counts, patterns, visible, choice.tileIndex);
+            // Preserve the existing ranking when completion probabilities tie.
+            std::stable_sort(choices.begin(), choices.end(), [&](const auto& a, const auto& b) {
+                return completion[a.tileIndex].successfulSequences >
+                       completion[b.tileIndex].successfulSequences;
+            });
+        }
         if (options.json) {
-            const auto choices = mahjong::rankDiscards(counts, patterns, visible);
             std::cout << "{\"mode\":\"discards\",\"unseen_copies\":" << unknownCopies
                       << ",\"choices\":[";
             const std::size_t limit = options.showAll ? choices.size()
@@ -424,6 +458,7 @@ int main(int argc, char* argv[]) {
                 printJsonDraws(c.improvingDraws);
                 std::cout << ",\"remaining_requirements\":";
                 printJsonRequirements(c.remainingRequirements);
+                if (options.lookahead) printJsonCompletion(completion[c.tileIndex]);
                 std::cout << "}";
             }
             std::cout << "]}\n";
@@ -442,10 +477,12 @@ int main(int argc, char* argv[]) {
             printed[index] = true;
         }
 
-        const auto choices = mahjong::rankDiscards(counts, patterns, visible);
         std::cout << "\nDiscard rankings (patterns: " << options.patternFile << "):\n"
                   << "Uniform-unknown-draw model: " << unknownCopies
                   << " unseen copies; does not model opponent hands or actual wall contents.\n";
+
+        if (options.lookahead)
+            std::cout << "Ranked by two-draw completion probability (optimal intervening discard).\n";
 
         if (std::all_of(choices.begin(), choices.end(),
                         [](const mahjong::DiscardChoice& choice) {
@@ -474,6 +511,7 @@ int main(int argc, char* argv[]) {
                       << " | estimated improvement: " << std::fixed << std::setprecision(1)
                       << percent << "%"
                       << " | nearest pattern: " << choice.closestPattern << "\n";
+            if (options.lookahead) printCompletion(completion[choice.tileIndex]);
             std::cout << "   Improving draws: ";
             if (choice.improvingDraws.empty()) {
                 std::cout << "none";

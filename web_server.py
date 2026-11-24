@@ -17,6 +17,9 @@ def analyze(payload, binary=ROOT / "mahjong", patterns=ROOT / "demo_patterns.txt
         raise ValueError("Expected a JSON object.")
     hand = payload.get("hand")
     visible = payload.get("visible", [])
+    lookahead = payload.get("lookahead", False)
+    if not isinstance(lookahead, bool):
+        raise ValueError("lookahead must be a boolean.")
     if not isinstance(hand, list) or len(hand) not in (13, 14):
         raise ValueError("Enter exactly 13 or 14 hand tiles.")
     if not isinstance(visible, list) or len(visible) > 152:
@@ -31,6 +34,8 @@ def analyze(payload, binary=ROOT / "mahjong", patterns=ROOT / "demo_patterns.txt
                "--hand", " ".join(hand)]
     if len(hand) == 13:
         command.append("--draws")
+    if lookahead:
+        command.append("--lookahead")
     if visible:
         command.extend(("--visible", " ".join(visible)))
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True,

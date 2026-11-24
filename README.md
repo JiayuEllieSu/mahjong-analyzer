@@ -97,6 +97,35 @@ Discards are ranked by:
 
 The analyzer also displays the tiles needed to complete a pattern and an estimated improvement percentage.
 
+## Two-draw lookahead
+
+Use the optional two-draw mode to estimate the chance of completing any listed
+pattern within the next one or two self-draws:
+
+```bash
+./mahjong --lookahead --all --hand "F F 5B 5B 5B 6B 6B 6B 7B 7B 7B 8B 8B E"
+./mahjong --lookahead --draws --json --hand "F F 5B 5B 5B 6B 6B 6B 7B 7B 7B 8B 8B"
+```
+
+Or enable **Two-draw lookahead** in the browser. When enabled, discard options
+are ranked by two-draw completion probability, with the original ranking used
+for ties. Without it, the previous behavior is unchanged.
+
+For an unseen pool of N physical tiles, the engine enumerates possible first
+draws weighted by their multiplicity. If the hand completes immediately, all
+remaining second draws count as successes. Otherwise, it chooses the discard
+with the most distinct winning copies in the remaining pool. The probability
+is the number of successful ordered physical draw sequences divided by N(N-1).
+With fewer than two available tiles, it uses the shorter horizon. Discarded
+tiles never return to the pool, and overlapping patterns do not double-count
+winning copies.
+
+This is exact under the stated two-draw model, not a real-game win forecast.
+It excludes calls, opponent actions and exposed-set restrictions. Completion
+means matching any provided pattern, not necessarily an official card hand.
+The optional JSON fields include the probabilities as percentages and integer
+sequence counts for reproducibility.
+
 ## Unreachable patterns
 
 The analyzer now checks **whether each pattern can still be completed** before

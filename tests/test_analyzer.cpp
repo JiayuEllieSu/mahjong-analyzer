@@ -167,5 +167,81 @@ int main() {
     catch (const std::invalid_argument&) { rejected = true; }
     assert(rejected);
 
+    // One-away fixture: ten of 139 tiles complete the hand. Drawing
+    // neither in two tries has probability 129*128/(139*138).
+    const auto oneAway = completionOdds(thirteen, {pattern});
+    assert(oneAway.unseen == 139);
+    assert(oneAway.oneDrawCopies == 10);
+    assert(oneAway.totalSequences == 139*138);
+    assert(oneAway.successfulSequences == 139*138 - 129*128);
+    // Overlapping targets must not double count physical winning tiles.
+    const auto duplicate = completionOdds(thirteen, {pattern, pattern});
+    assert(duplicate.successfulSequences == oneAway.successfulSequences);
+    assert(duplicate.oneDrawCopies == oneAway.oneDrawCopies);
+
+    // Two-away fixture: two draws must come from eleven eligible tiles.
+    Counts twoAway = thirteen;
+    --twoAway[7];
+    ++twoAway[27];
+    const auto two = completionOdds(twoAway, {pattern});
+    assert(two.oneDrawCopies == 0);
+    assert(two.successfulSequences == 11*10);
+    assert(two.totalSequences == 139*138);
+
+    // The original discard must not reenter the unknown pool.
+    const auto afterEast = completionAfterDiscard(candidate, {pattern}, Counts{}, 27);
+    assert(afterEast.unseen == 138);
+    assert(afterEast.oneDrawCopies == 10);
+    assert(afterEast.successfulSequences == 138*137 - 128*127);
+
+    // Only one physical draw remains; no division by zero.
+    Counts oneLeft{};
+    for (int tile = 0; tile < TILE_TYPES; ++tile)
+        oneLeft[tile] = physicalCopies(tile) - thirteen[tile];
+    --oneLeft[7];
+    const auto finalDraw = completionOdds(thirteen, {pattern}, oneLeft);
+    assert(finalDraw.unseen == 1 && finalDraw.oneDrawCopies == 1);
+    assert(finalDraw.successfulSequences == 1 && finalDraw.totalSequences == 1);
+    ++oneLeft[7];
+    const auto noDraw = completionOdds(thirteen, {pattern}, oneLeft);
+    assert(noDraw.totalSequences == 0 && noDraw.twoDrawProbability() == 0.0);
+
+    // Cross-check the optimized union of winning outs against direct
+    // pattern matching on a small but nontrivial multi-target draw pool.
+    Pattern alternate{"Alternative", {{34,2},{4,3},{5,3},{6,3},{27,3}}};
+    std::vector<Pattern> targets{pattern, alternate};
+    Counts pool{};
+    pool[7] = 2; pool[27] = 2; pool[JOKER_INDEX] = 2; pool[0] = 1;
+    Counts known{};
+    for (int tile = 0; tile < TILE_TYPES; ++tile)
+        known[tile] = physicalCopies(tile) - twoAway[tile] - pool[tile];
+    const auto multi = completionOdds(twoAway, targets, known);
+    Counts held = twoAway;
+    int reference = 0;
+    for (int first = 0; first < TILE_TYPES; ++first) {
+        const int copies = pool[first];
+        if (!copies) continue;
+        --pool[first]; ++held[first];
+        int best = 0;
+        if (minimumMissing(held, targets) == 0) best = 6;
+        else for (int discard = 0; discard < TILE_TYPES; ++discard) {
+            if (!held[discard]) continue;
+            --held[discard];
+            int outs = 0;
+            for (int second = 0; second < TILE_TYPES; ++second) {
+                if (!pool[second]) continue;
+                ++held[second];
+                if (minimumMissing(held, targets) == 0) outs += pool[second];
+                --held[second];
+            }
+            best = std::max(best, outs);
+            ++held[discard];
+        }
+        reference += copies * best;
+        ++pool[first]; --held[first];
+    }
+    assert(multi.totalSequences == 7*6);
+    assert(multi.successfulSequences == reference);
+
     std::cout << "All tests passed.\n";
 }

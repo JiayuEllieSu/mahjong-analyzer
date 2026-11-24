@@ -427,4 +427,140 @@ inline DrawAdvice rankDraws(
             missingRequirements(hand, feasiblePatterns[bestPatternIndex])};
 }
 
+// Count exact, distinct winning draws for a 13-tile hand. A tile can
+// complete several patterns; the union prevents double counting.
+inline int completionCopies(const Counts& hand, const Counts& pool,
+                            const std::vector<Pattern>& patterns) {
+    std::array<bool, TILE_TYPES> wins{};
+    for (const auto& pattern : patterns) {
+        std::array<int, JOKER_INDEX> fixed{}, flexible{};
+        for (const auto& group : pattern.groups) {
+            (group.size <= 2 ? fixed : flexible)[group.tileIndex] += group.size;
+        }
+        int fixedMissing = 0, flexibleMissing = 0, missingNatural = -1;
+        for (int tile = 0; tile < JOKER_INDEX; ++tile) {
+            const int requiredNatural = std::max(0, fixed[tile] - hand[tile]);
+            fixedMissing += requiredNatural;
+            if (requiredNatural) missingNatural = tile;
+            flexibleMissing += std::max(0, flexible[tile] -
+                                            std::max(0, hand[tile] - fixed[tile]));
+        }
+        const int jokerShortage = std::max(0, flexibleMissing - hand[JOKER_INDEX]);
+        if (fixedMissing + jokerShortage != 1) continue;
+        if (fixedMissing == 1) {
+            wins[missingNatural] = true;
+        } else {
+            wins[JOKER_INDEX] = true;
+            for (int tile = 0; tile < JOKER_INDEX; ++tile) {
+                if (hand[tile] < fixed[tile] + flexible[tile]) wins[tile] = true;
+            }
+        }
+    }
+    int copies = 0;
+    for (int tile = 0; tile < TILE_TYPES; ++tile)
+        if (wins[tile]) copies += pool[tile];
+    return copies;
+}
+
+struct CompletionOdds {
+    int unseen = 0;
+    int oneDrawCopies = 0;
+    int successfulSequences = 0;
+    int totalSequences = 0;
+
+    double oneDrawProbability() const {
+        return unseen ? static_cast<double>(oneDrawCopies) / unseen : 0.0;
+    }
+    double twoDrawProbability() const {
+        return totalSequences
+            ? static_cast<double>(successfulSequences) / totalSequences : 0.0;
+    }
+};
+
+// Exact probability of completing any listed pattern within the next two
+// self-draws, using the uniform unseen pool without replacement. After a
+// nonwinning first draw, choose the discard maximizing second-draw outs.
+// No other player's actions, calls, or exposed-meld restrictions are modeled.
+inline CompletionOdds completionOdds(const Counts& hand,
+                                     const std::vector<Pattern>& patterns,
+                                     const Counts& visible = Counts{}) {
+    if (patterns.empty()) throw std::invalid_argument("Provide at least one pattern");
+    CompletionOdds odds;
+    odds.unseen = unseenCopies(hand, visible);
+    int size = 0;
+    for (int count : hand) size += count;
+    if (size != 13) throw std::invalid_argument("Completion odds require 13 tiles");
+
+    const int n = odds.unseen;
+    odds.totalSequences = n >= 2 ? n * (n - 1) : n;
+    if (n == 0) return odds;
+
+    Counts pool{};
+    for (int tile = 0; tile < TILE_TYPES; ++tile)
+        pool[tile] = physicalCopies(tile) - hand[tile] - visible[tile];
+
+    // Each new tile can improve a pattern's missing count by at most one.
+    // A pattern more than two tiles away cannot win in this horizon.
+    std::vector<Pattern> near;
+    for (const auto& pattern : patterns) {
+        if (matchPattern(hand, pattern).missing <= 2 &&
+            canCompletePattern(pattern, visible)) near.push_back(pattern);
+    }
+    if (near.empty()) return odds;
+    odds.oneDrawCopies = completionCopies(hand, pool, near);
+    if (n == 1) {
+        odds.successfulSequences = odds.oneDrawCopies;
+        return odds;
+    }
+
+    Counts held = hand;
+    for (int first = 0; first < TILE_TYPES; ++first) {
+        const int multiplicity = pool[first];
+        if (!multiplicity) continue;
+        ++held[first];
+        --pool[first];
+        std::vector<Pattern> next;
+        bool complete = false;
+        for (const auto& pattern : near) {
+            const int missing = matchPattern(held, pattern).missing;
+            if (missing == 0) {
+                complete = true;
+                break;
+            }
+            if (missing == 1) next.push_back(pattern);
+        }
+        if (complete) {
+            // The first draw already wins; every possible second tile counts.
+            odds.successfulSequences += multiplicity * (n - 1);
+        } else if (!next.empty()) {
+            int best = 0;
+            for (int discard = 0; discard < TILE_TYPES; ++discard) {
+                if (!held[discard]) continue;
+                --held[discard];
+                // Discards are known tiles, not returned to the draw pool.
+                best = std::max(best, completionCopies(held, pool, next));
+                ++held[discard];
+            }
+            odds.successfulSequences += multiplicity * best;
+        }
+        ++pool[first];
+        --held[first];
+    }
+    return odds;
+}
+
+inline CompletionOdds completionAfterDiscard(const Counts& hand,
+                                             const std::vector<Pattern>& patterns,
+                                             const Counts& visible, int discard) {
+    (void)unseenCopies(hand, visible);
+    int size = 0;
+    for (int count : hand) size += count;
+    if (size != 14 || discard < 0 || discard >= TILE_TYPES || !hand[discard])
+        throw std::invalid_argument("Expected a held tile in a 14-tile hand");
+    Counts held = hand, unavailable = visible;
+    --held[discard];
+    ++unavailable[discard];
+    return completionOdds(held, patterns, unavailable);
+}
+
 } // namespace mahjong

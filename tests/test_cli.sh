@@ -63,3 +63,12 @@ if ./mahjong --json >/dev/null 2>&1; then
   echo 'Expected --json without --hand to be rejected' >&2
   exit 1
 fi
+
+
+# Lookahead preserves the ordinary mode and adds exact completion statistics.
+lookahead_json=$(./mahjong --hand "$draw_hand" --draws --json --lookahead --patterns tests/fixture_patterns.txt)
+python3 -c 'import json,sys; x=json.loads(sys.argv[1]); assert x["one_draw_completion_copies"] == 10; assert x["two_draw_successful_sequences"] == 139*138-129*128; assert x["two_draw_total_sequences"] == 139*138' "$lookahead_json"
+lookahead_discards=$(./mahjong --hand "$hand" --all --json --lookahead --patterns tests/fixture_patterns.txt)
+python3 -c 'import json,sys; x=json.loads(sys.argv[1]); c=x["choices"]; assert c[0]["discard"] == "E"; assert c[0]["two_draw_total_sequences"] == 138*137; assert all(a["two_draw_successful_sequences"] >= b["two_draw_successful_sequences"] for a,b in zip(c,c[1:]))' "$lookahead_discards"
+lookahead_text=$(./mahjong --hand "$draw_hand" --draws --lookahead --patterns tests/fixture_patterns.txt)
+grep -Fq 'Completion within one draw:' <<< "$lookahead_text"
