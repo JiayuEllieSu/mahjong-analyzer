@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>American Mahjong Analyzer</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#202c26;background:#f5f5ef;line-height:1.5}
+*{box-sizing:border-box} body{margin:0} main{max-width:1000px;margin:auto;padding:32px 20px 64px}
+h1{font-size:clamp(1.7rem,4vw,2.4rem);margin:0} h2{font-size:1.12rem;margin:0 0 12px}
+header p,.muted{color:#516057;font-size:.9rem} section{background:white;border:1px solid #d9dfd7;border-radius:10px;padding:18px;margin-top:16px}
+button{font:inherit;cursor:pointer;border:1px solid #c3cec3;border-radius:6px;background:white;color:inherit;padding:7px 12px}
+button:focus-visible{outline:3px solid #377b62;outline-offset:2px} button:disabled{opacity:.35;cursor:not-allowed}
+button[aria-pressed=true]{background:#244d3d;color:white;border-color:#244d3d}
+.actions,.tiles,.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.palette-row{display:grid;grid-template-columns:85px 1fr;align-items:center;gap:8px;margin:10px 0}
+.tile{min-width:45px;min-height:48px;display:inline-flex;align-items:center;justify-content:center;flex-direction:column;font-weight:650;border-bottom:3px solid #b7c7ba}
+.tile small{font-size:.65rem;font-weight:400;color:#53655b}.B{color:#236747}.D{color:#174e80}.C,.RD{color:#ac3837}
+.rack{min-height:60px;background:#f1f5f0;padding:10px;border-radius:6px}
+.toolbar{justify-content:space-between;margin-bottom:12px}
+.results article{border-top:1px solid #e0e5df;padding:13px 0}
+.results article:first-of-type{border:0}.results h3{font-size:1rem;margin:0 0 5px}
+.stats{font-size:.9rem;color:#355448}.error{color:#9f2d24}.draw-list{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.out{background:#edf3ee;border:1px solid #d9e4da;border-radius:5px;padding:4px 8px;font-size:.85rem}
+@media(max-width:560px){.palette-row{grid-template-columns:1fr}.tile{min-width:40px;padding:5px}.toolbar{align-items:flex-start}}
+</style>
+</head>
+<body>
+<main>
+<header><h1>American Mahjong Analyzer</h1>
+<p>Select your tiles, account for visible tiles, and compare the next moves. Uses the local C++ pattern engine.</p></header>
+<section aria-labelledby="rack-heading">
+<div class="toolbar"><h2 id="rack-heading">Your hand <span id="hand-count">0 / 14</span></h2>
+<div class="actions"><button id="example">Load example</button><button id="clear">Clear all</button></div></div>
+<div id="hand" class="rack tiles" aria-label="Hand tiles"></div>
+<h2 style="margin-top:15px">Visible tiles <span id="visible-count">0</span></h2>
+<div id="visible" class="rack tiles" aria-label="Visible tiles"></div>
+<p class="muted">Click a tile in either rack to remove it. Visible tiles are unavailable to draw and exclude your own hand.</p>
+</section>
+<section aria-labelledby="palette-heading">
+<div class="toolbar"><h2 id="palette-heading">Tile palette</h2>
+<div class="actions"><button id="to-hand" aria-pressed="true">Add to hand</button><button id="to-visible" aria-pressed="false">Add to visible</button></div></div>
+<div id="palette"></div>
+<p class="muted">Small numbers show copies not yet accounted for. Flowers and jokers have eight copies; other types have four.</p>
+</section>
+<section class="results" aria-labelledby="results-heading">
+<h2 id="results-heading">Analysis</h2>
+<p id="status" role="status" aria-live="polite">Enter 13 or 14 tiles.</p>
+<div id="results"></div>
+<p class="muted">Probabilities assume a uniform unseen pool, not the actual wall. The default patterns are demonstrations, not the official NMJL card. Own exposed-set restrictions and opponent strategy are not modeled.</p>
+</section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const rows = [
+  ["Bamboo", Array.from({length:9}, (_, i) => (i+1)+"B")],
+  ["Dots", Array.from({length:9}, (_, i) => (i+1)+"D")],
+  ["Characters", Array.from({length:9}, (_, i) => (i+1)+"C")],
+  ["Honors", ["E","S","W","N","RD","GD","WD"]],
+  ["Special", ["F","J"]]
+];
+const names = {E:"East",S:"South",W:"West",N:"North",RD:"Red dragon",GD:"Green dragon",WD:"White dragon",F:"Flower",J:"Joker"};
+const state = {hand:[],visible:[],target:"hand"};
+let generation = 0, timer;
+const paletteButtons = new Map();
+function capacity(t){return t==="F"||t==="J"?8:4;}
+function remaining(t){return capacity(t)-state.hand.filter(x=>x===t).length-state.visible.filter(x=>x===t).length;}
+function name(t){return names[t] || t;}
+function element(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}
+function tileButton(t,action,label){
+  const b=element("button",t,"tile "+(/^[1-9]/.test(t)?t[1]:t));
+  b.type="button";b.title=label;b.setAttribute("aria-label",label);b.addEventListener("click",action);return b;
+}
+for(const [label,tiles] of rows){
+  const row=element("div",undefined,"palette-row"), buttons=element("div",undefined,"tiles");
+  row.append(element("span",label),buttons);
+  for(const t of tiles){
+    const b=tileButton(t,()=>{
+      if(remaining(t)<=0 || (state.target==="hand"&&state.hand.length>=14))return;
+      state[state.target].push(t);update();
+    },"Add "+name(t));
+    b.append(element("small",""));buttons.append(b);paletteButtons.set(t,b);
+  }
+  $("palette").append(row);
+}
+function renderRack(key){
+  const rack=$(key);rack.replaceChildren();
+  if(!state[key].length){rack.append(element("span","No tiles selected","muted"));return;}
+  state[key].forEach((t,i)=>rack.append(tileButton(t,()=>{state[key].splice(i,1);update();},"Remove "+name(t)+" from "+key)));
+}
+function render(){
+  renderRack("hand");renderRack("visible");
+  $("hand-count").textContent=state.hand.length+" / 14";
+  $("visible-count").textContent=state.visible.length;
+  $("to-hand").setAttribute("aria-pressed",String(state.target==="hand"));
+  $("to-visible").setAttribute("aria-pressed",String(state.target==="visible"));
+  for(const [t,b] of paletteButtons){
+    b.querySelector("small").textContent=remaining(t)+" left";
+    b.disabled=remaining(t)<=0||(state.target==="hand"&&state.hand.length>=14);
+    b.setAttribute("aria-label","Add "+name(t)+" to "+state.target+", "+remaining(t)+" remaining");
+  }
+}
+function showChoice(c,title){
+  const article=element("article");article.append(element("h3",title));
+  if(!c.reachable){article.append(element("p","No reachable target pattern.","muted"));return article;}
+  article.append(element("div",c.closest_pattern,"muted"));
+  article.append(element("div",c.missing+" missing · "+c.improving_copies+" improving copies · "+c.improvement_percentage.toFixed(1)+"% estimated improvement","stats"));
+  const requirements=c.remaining_requirements.map(r=>[
+    r.natural_only ? r.natural_only+" × "+r.tile+" (natural only)" : "",
+    r.joker_eligible ? r.joker_eligible+" × "+r.tile+" (or joker)" : ""
+  ].filter(Boolean).join(", ")).join(", ");
+  article.append(element("div","Needed: "+(requirements||"nothing")));
+  const draws=element("div",undefined,"draw-list");
+  draws.append(element("span","Helpful draws:"));
+  for(const d of c.improving_draws)draws.append(element("span",d.tile+" · "+d.remaining_copies+" left","out"));
+  if(!c.improving_draws.length)draws.append(element("span","none"));
+  article.append(draws);return article;
+}
+async function requestAnalysis(id){
+  try{
+    const response=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hand:state.hand,visible:state.visible})});
+    const data=await response.json();
+    if(id!==generation)return;
+    if(!response.ok)throw Error(data.error||"Analysis failed.");
+    $("status").textContent=data.unseen_copies+" unseen copies · "+(data.mode==="draws"?"Draw advice":"Discard rankings");
+    const output=$("results");output.replaceChildren();
+    if(data.mode==="draws")output.append(showChoice(data,"Next draw"));
+    else data.choices.forEach((c,i)=>output.append(showChoice(c,(i+1)+". Discard "+c.discard)));
+  }catch(err){
+    if(id!==generation)return;
+    $("status").textContent=err.message;$("status").className="error";
+  }
+}
+function update(){
+  render();clearTimeout(timer);const id=++generation;
+  $("results").replaceChildren();$("status").className="";
+  if(state.hand.length!==13&&state.hand.length!==14){
+    $("status").textContent="Enter 13 or 14 tiles to analyze.";return;
+  }
+  $("status").textContent="Analyzing…";timer=setTimeout(()=>requestAnalysis(id),120);
+}
+$("to-hand").onclick=()=>{state.target="hand";render();};
+$("to-visible").onclick=()=>{state.target="visible";render();};
+$("clear").onclick=()=>{state.hand=[];state.visible=[];state.target="hand";update();};
+$("example").onclick=()=>{state.hand="F F 5B 5B 5B 6B 6B 6B 7B 7B 7B 8B 8B E".split(" ");state.visible=[];state.target="hand";update();};
+update();
+</script>
+</body>
+</html>
